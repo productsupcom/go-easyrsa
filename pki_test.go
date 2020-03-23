@@ -1,7 +1,10 @@
 package easyrsa
 
 import (
+	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
+	"fmt"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -53,7 +56,7 @@ func TestPKI_newCert(t *testing.T) {
 	defer cleanup()
 	_, _ = pki.NewCa()
 	t.Run("create server cert and write", func(t *testing.T) {
-		got, err := pki.NewCert("server", true)
+		got, err := pki.NewCert("server", true, []string{""})
 		assert.NoError(t, err)
 		assert.NotNil(t, got)
 		assert.NotEmpty(t, got.CertPemBytes)
@@ -114,9 +117,9 @@ func TestPKI_RevokeOne(t *testing.T) {
 	pki, cleanup := getTmpPki()
 	defer cleanup()
 	_, _ = pki.NewCa()
-	_, _ = pki.NewCert("server", true)
-	_, _ = pki.NewCert("server", true)
-	_, _ = pki.NewCert("cert", false)
+	_, _ = pki.NewCert("server", true, []string{""})
+	_, _ = pki.NewCert("server", true, []string{""})
+	_, _ = pki.NewCert("cert", false, []string{""})
 	t.Run("revoke", func(t *testing.T) {
 		err := pki.RevokeOne(big.NewInt(300))
 		assert.NoError(t, err)
@@ -129,9 +132,9 @@ func TestPKI_IsRevoked(t *testing.T) {
 	pki, cleanup := getTmpPki()
 	defer cleanup()
 	_, _ = pki.NewCa()
-	_, _ = pki.NewCert("server", true)
-	_, _ = pki.NewCert("server", true)
-	_, _ = pki.NewCert("cert", false)
+	_, _ = pki.NewCert("server", true, []string{""})
+	_, _ = pki.NewCert("server", true, []string{""})
+	_, _ = pki.NewCert("cert", false, []string{""})
 	t.Run("revoke", func(t *testing.T) {
 		err := pki.RevokeOne(big.NewInt(4))
 		assert.NoError(t, err)
@@ -145,9 +148,9 @@ func TestPKI_RevokeAllByCN(t *testing.T) {
 	pki, cleanup := getTmpPki()
 	defer cleanup()
 	_, _ = pki.NewCa()
-	_, _ = pki.NewCert("server", true)
-	_, _ = pki.NewCert("server", true)
-	_, _ = pki.NewCert("cert", false)
+	_, _ = pki.NewCert("server", true, []string{""})
+	_, _ = pki.NewCert("server", true, []string{""})
+	_, _ = pki.NewCert("cert", false, []string{""})
 	t.Run("revoke", func(t *testing.T) {
 		err := pki.RevokeAllByCN("server")
 		assert.NoError(t, err)
@@ -183,5 +186,42 @@ func TestPKI_GetLastCA(t *testing.T) {
 		assert.NotNil(t, pair)
 		assert.Equal(t, pair.CN, "ca")
 		assert.Equal(t, pair.Serial, big.NewInt(5))
+	})
+}
+
+func TestPKI_NewCert1(t *testing.T) {
+	t.Run("client", func(t *testing.T) {
+		keyDir := "tmp/"
+		err := os.MkdirAll(keyDir, 0750)
+		if err != nil {
+			fmt.Println(fmt.Errorf("can`t create key dir: %s", err))
+		}
+		storage := NewDirKeyStorage(keyDir)
+		serialProvider := NewFileSerialProvider(filepath.Join(keyDir, "index.txt"))
+		crlHolder := NewFileCRLHolder(filepath.Join(keyDir, "crl.pem"))
+		pki := NewPKI(storage, serialProvider, crlHolder, pkix.Name{})
+
+		_, _ = pki.NewCa()
+		pair, err := pki.NewCert("server", false, []string{"group1,group2"})
+		if err != nil {
+			t.Log(err)
+			t.Fail()
+		}
+		block, _ := pem.Decode(pair.CertPemBytes)
+		if block == nil {
+			t.Logf("block failed")
+			t.Fail()
+		}
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err != nil {
+			t.Logf("ParseCertificate: %v", err)
+			t.Fail()
+		}
+		groups, err := pki.ExtractGroups(cert)
+		if err != nil {
+			t.Log(err)
+			t.Fail()
+		}
+		assert.Equal(t, *groups, []string{"group1,group2"})
 	})
 }

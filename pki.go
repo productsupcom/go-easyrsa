@@ -8,6 +8,7 @@ import (
 	"encoding/asn1"
 	"encoding/pem"
 	"math/big"
+	"net"
 	"sort"
 	"time"
 
@@ -114,7 +115,7 @@ func (p *PKI) NewCa() (*X509Pair, error) {
 }
 
 // NewCert generate new pair signed by last CA key
-func (p *PKI) NewCert(cn string, server bool) (*X509Pair, error) {
+func (p *PKI) NewCert(cn string, server bool, groups []string) (*X509Pair, error) {
 	caPair, err := p.GetLastCA()
 	if err != nil {
 		return nil, errors.Wrap(err, "can`t get ca pair")
@@ -150,6 +151,9 @@ func (p *PKI) NewCert(cn string, server bool) (*X509Pair, error) {
 		KeyUsage:              x509.KeyUsageDigitalSignature | x509.KeyUsageKeyAgreement,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
+		DNSNames:              []string{cn},
+		IPAddresses:           []net.IP{net.IP{127, 0, 0, 1}},
+		ExcludedDNSDomains:    groups,
 		ExtraExtensions: []pkix.Extension{
 			{
 				Id:    asn1.ObjectIdentifier{2, 16, 840, 1, 113730, 1, 1},
@@ -280,4 +284,11 @@ func removeDups(list []pkix.RevokedCertificate) []pkix.RevokedCertificate {
 		}
 	}
 	return result
+}
+
+func (p *PKI) ExtractGroups(cert *x509.Certificate) (groups *[]string, err error) {
+	if len(cert.ExcludedDNSDomains) > 0 {
+		return &cert.ExcludedDNSDomains, nil
+	}
+	return nil, errors.New("No groups in certificate")
 }
